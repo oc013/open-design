@@ -94,6 +94,35 @@ export interface OrbitConfigPrefs {
   templateSkillId?: string | null;
 }
 
+export interface DefaultByokPrefs {
+  baseUrl: string;
+  protocol: string;
+  model?: string;
+}
+
+export function readDefaultByokFromEnv(env: NodeJS.ProcessEnv = process.env): DefaultByokPrefs | undefined {
+  const baseUrl = env.OD_DEFAULT_BYOK_BASE_URL?.trim();
+  if (!baseUrl) return undefined;
+  const protocol = env.OD_DEFAULT_BYOK_PROTOCOL?.trim() || 'openai';
+  const model = env.OD_DEFAULT_BYOK_MODEL?.trim();
+  const result: DefaultByokPrefs = { baseUrl, protocol };
+  if (model) result.model = model;
+  return result;
+}
+
+export function validateDefaultByok(raw: unknown): DefaultByokPrefs | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const obj = raw as Record<string, unknown>;
+  const baseUrl = typeof obj.baseUrl === 'string' && obj.baseUrl.trim() ? obj.baseUrl.trim() : undefined;
+  const protocol = typeof obj.protocol === 'string' && obj.protocol.trim() ? obj.protocol.trim() : undefined;
+  if (!baseUrl || !protocol) return undefined;
+  const result: DefaultByokPrefs = { baseUrl, protocol };
+  const model = typeof obj.model === 'string' && obj.model.trim() ? obj.model.trim() : undefined;
+  if (model) result.model = model;
+  return result;
+}
+
 export interface ProjectLocationPrefs {
   id: string;
   name: string;
@@ -103,6 +132,7 @@ export interface ProjectLocationPrefs {
 export interface AppConfigPrefs {
   onboardingCompleted?: boolean;
   agentId?: string | null;
+  defaultByok?: DefaultByokPrefs;
   agentModels?: Record<string, AgentModelPrefs>;
   agentCliEnv?: AgentCliEnvPrefs;
   agentCliEnvIntent?: AgentCliEnvIntentPrefs;
@@ -130,6 +160,7 @@ export const RECENT_LINKED_DIRS_MAX = 5;
 
 const ALLOWED_KEYS: ReadonlySet<keyof AppConfigPrefs> = new Set([
   'onboardingCompleted',
+  'defaultByok',
   'agentId',
   'agentModels',
   'agentCliEnv',
@@ -472,6 +503,15 @@ function applyConfigValue(
     if (typeof value === 'boolean') target[key] = value;
     return;
   }
+  if (key === 'defaultByok') {
+    const validated = validateDefaultByok(value);
+    if (validated !== undefined) {
+      target[key] = validated;
+    } else {
+      delete target[key];
+    }
+    return;
+  }
   if (key === 'agentId' || key === 'skillId' || key === 'designSystemId') {
     if (typeof value === 'string' || value === null) target[key] = value;
     return;
@@ -620,8 +660,10 @@ function applyTelemetryDefaults(prefs: AppConfigPrefs): AppConfigPrefs {
   return prefs;
 }
 
-export async function readAppConfig(dataDir: string): Promise<AppConfigPrefs> {
+export async function readAppConfig(dataDir: string, env: NodeJS.ProcessEnv = process.env): Promise<AppConfigPrefs> {
   const base = await readAppConfigFileOnly(dataDir);
+  const envDefaultByok = readDefaultByokFromEnv(env);
+  const merged = envDefaultByok ? { ...base, defaultByok: envDefaultByok } : base;
   // Channel-root installation file is the new authoritative source for the
   // identity bits that must survive a namespace-scoped data-dir wipe. It
   // lives outside `<namespace>/data/` so a reinstall of the same channel
@@ -636,19 +678,19 @@ export async function readAppConfig(dataDir: string): Promise<AppConfigPrefs> {
   const installationDir = resolveInstallationDir(dataDir);
   const installation = await readInstallationFile(installationDir);
   if (typeof installation.installationId === 'string' && installation.installationId.length > 0) {
-    return applyTelemetryDefaults({ ...base, installationId: installation.installationId });
+    return applyTelemetryDefaults({ ...merged, installationId: installation.installationId });
   }
-  if (typeof base.installationId === 'string' && base.installationId.length > 0) {
+  if (typeof merged.installationId === 'string' && merged.installationId.length > 0) {
     // Best-effort migration. A write failure here doesn't break the read —
     // we still serve the legacy id. The next write through writeAppConfig
     // will retry the mirror.
     try {
-      await writeInstallationFile(installationDir, { installationId: base.installationId });
+      await writeInstallationFile(installationDir, { installationId: merged.installationId });
     } catch {
       // swallow — observability beats correctness on this path
     }
   }
-  return applyTelemetryDefaults(base);
+  return applyTelemetryDefaults(merged);
 }
 
 // Synchronous mirror of readAppConfig for callers that cannot await — e.g.
@@ -659,19 +701,21 @@ export async function readAppConfig(dataDir: string): Promise<AppConfigPrefs> {
 // sees. The only intentional difference is that it skips the best-effort
 // legacy→channel-root migration *write*, which is a side effect rather than
 // part of the read result.
-export function readAppConfigSync(dataDir: string): AppConfigPrefs {
+export function readAppConfigSync(dataDir: string, env: NodeJS.ProcessEnv = process.env): AppConfigPrefs {
   const base = readAppConfigFileOnlySync(dataDir);
+  const envDefaultByok = readDefaultByokFromEnv(env);
+  const merged = envDefaultByok ? { ...base, defaultByok: envDefaultByok } : base;
   const installation = readInstallationFileSync(resolveInstallationDir(dataDir));
   if (
     typeof installation.installationId === 'string' &&
     installation.installationId.length > 0
   ) {
     return applyTelemetryDefaults({
-      ...base,
+      ...merged,
       installationId: installation.installationId,
     });
   }
-  return applyTelemetryDefaults(base);
+  return applyTelemetryDefaults(merged);
 }
 
 function readAppConfigFileOnlySync(dataDir: string): AppConfigPrefs {
