@@ -362,7 +362,14 @@ export interface PetConfig {
   custom: PetCustom;
 }
 
+export interface DefaultByokPrefs {
+  baseUrl: string;
+  protocol: string;
+  model?: string;
+}
+
 export interface AppConfig {
+  defaultByok?: DefaultByokPrefs;
   mode: ExecMode;
   apiKey: string;
   baseUrl: string;

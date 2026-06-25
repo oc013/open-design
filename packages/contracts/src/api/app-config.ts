@@ -26,8 +26,15 @@ export interface ProjectLocationPrefs {
   path: string;
 }
 
+export interface DefaultByokPrefs {
+  baseUrl: string;
+  protocol: string;
+  model?: string;
+}
+
 export interface AppConfigPrefs {
   onboardingCompleted?: boolean;
+  defaultByok?: DefaultByokPrefs;
   agentId?: string | null;
   agentModels?: Record<string, AgentModelPrefs>;
   agentCliEnv?: AgentCliEnvPrefs;

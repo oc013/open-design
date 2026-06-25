@@ -783,6 +783,16 @@ export function mergeDaemonConfig(
   if (daemonConfig.defaultProjectLocationId !== undefined) {
     next.defaultProjectLocationId = daemonConfig.defaultProjectLocationId ?? 'default';
   }
+  // Daemon-provided BYOK defaults override the built-in Anthropic defaults
+  // when no user-set provider is detected (baseUrl still at factory default).
+  // This allows self-hosted deployments to set OD_DEFAULT_BYOK_* env vars
+  // so the app works from any browser without localStorage configuration.
+  const byok = daemonConfig.defaultByok;
+  if (byok?.baseUrl && byok?.protocol && next.baseUrl === DEFAULT_CONFIG.baseUrl) {
+    next.baseUrl = byok.baseUrl;
+    next.apiProtocol = byok.protocol as ApiProtocol;
+    if (byok.model) next.model = byok.model;
+  }
   return next;
 }
 
